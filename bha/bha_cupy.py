@@ -5,6 +5,17 @@ from cortex.polyutils import Surface
 from scipy.sparse.linalg import LinearOperator
 import scipy.sparse.linalg as sparsela
 import cupy
+from cupyx.scipy import sparse as cpx_sparse
+
+try:
+    # Old-style low-level wrappers (may not exist on newer CuPy)
+    from cupyx.scipy.sparse import cusparse as _cusparse
+    _HAS_CSRMM2 = hasattr(_cusparse, 'csrmm2')
+    _HAS_CSRMV = hasattr(_cusparse, 'csrmv')
+except Exception:
+    _cusparse = None
+    _HAS_CSRMM2 = False
+    _HAS_CSRMV = False
 
 from bha.thr import THR, THR_ROWS
 from bha.base import SymMatrixApprox, MeshKLazy
@@ -219,6 +230,7 @@ class BHA(SymMatrixApprox):
     def get_row(self, i, out=None):
         if self._threshold is None:
             approx = self._P[i,:].dot(self._W).dot(self._P.T)
+            return self.reconstruct(approx)
         else:
             if not hasattr(self, '_cupyPW'):
                 # create GPU objects to hold intermediate states so we don't re-create them every time
@@ -231,16 +243,30 @@ class BHA(SymMatrixApprox):
             #Pi.sum_duplicates()
             Pi._has_canonical_format = True # since P is already in canonical format?
 
-            cupy.cusparse.csrmm2(Pi, self._W.T, self._cupyPW)
+            if _cusparse is not None and _HAS_CSRMM2 and _HAS_CSRMV:
+                # self._cupyPW: (1, W.shape[0])
+                _cusparse.csrmm2(Pi, self._W.T, self._cupyPW)
+        
+                if out is not None:
+                    # out is expected to live on the device already
+                    _cusparse.csrmv(self._P, self._cupyPW.T, out)
+                    return out
+                else:
+                    _cusparse.csrmv(self._P, self._cupyPW.T, self._cupyrow)
+                    approx = self._cupyrow.get()
+                    return self.reconstruct(approx)
+            
+            self._cupyPW[...] = Pi.dot(self._W)
+
+            tmp = self._P.dot(self._cupyPW.T).ravel()
+        
             if out is not None:
-                cupy.cusparse.csrmv(self._P, self._cupyPW.T, out)
+                out[...] = tmp
                 return out
             else:
-                cupy.cusparse.csrmv(self._P, self._cupyPW.T, self._cupyrow)
-                #approx = self._P.dot(self._P[i,:].dot(self._W).T).T
+                self._cupyrow[...] = tmp
                 approx = self._cupyrow.get()
-
-        return self.reconstruct(approx)
+            return self.reconstruct(approx)
 
     def get_rows(self, rows):
         raise NotImplementedError('cupy version doesn\'t support get_rows, sorry')
