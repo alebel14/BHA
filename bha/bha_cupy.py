@@ -8,7 +8,7 @@ import cupy
 from cupyx.scipy import sparse as cpx_sparse
 
 try:
-    # Old-style low-level wrappers (may not exist on newer CuPy)
+    # Old-style low-level wrappers (does not exist on newer CuPy)
     from cupyx.scipy.sparse import cusparse as _cusparse
     _HAS_CSRMM2 = hasattr(_cusparse, 'csrmm2')
     _HAS_CSRMV = hasattr(_cusparse, 'csrmv')
