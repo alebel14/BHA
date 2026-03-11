@@ -35,7 +35,7 @@ class FarthestSampling(Sampling):
         else:
             W = np.empty((k, k))
 
-        inds = np.empty((k,), dtype=np.int)
+        inds = np.empty((k,), dtype=int)
 
         # Choose initial landmark randomly
         inds[0] = np.random.randint(0, n)

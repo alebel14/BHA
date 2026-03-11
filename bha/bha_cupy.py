@@ -5,6 +5,8 @@ from cortex.polyutils import Surface
 from scipy.sparse.linalg import LinearOperator
 import scipy.sparse.linalg as sparsela
 import cupy
+import cupyx.scipy.sparse as cpx_sparse
+
 
 from bha.thr import THR, THR_ROWS
 from bha.base import SymMatrixApprox, MeshKLazy
@@ -197,7 +199,7 @@ class BHA(SymMatrixApprox):
 
         # save values
         self._nnz = Pnnz
-        self._P = cupy.sparse.csr_matrix(P)
+        self._P = cpx_sparse.csr_matrix(P)
 
     def reconstruct(self, approx):
         """Reconstruct the data from the approximation. Takes the square root
@@ -332,7 +334,7 @@ class BHA(SymMatrixApprox):
         new_bha = cls.__new__(cls)
         data = np.load(filename)
         new_bha._W = cupy.array(data['W'])
-        new_bha._P = cupy.sparse.csr_matrix(data['P'].tolist())
+        new_bha._P = cpx_sparse.csr_matrix(data['P'].tolist())
         new_bha._interp_sq = data['interp_sq']
         new_bha._threshold = data['threshold']
         return new_bha
