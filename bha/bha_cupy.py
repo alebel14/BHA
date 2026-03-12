@@ -193,8 +193,10 @@ class BHA(SymMatrixApprox):
             Pcols[lastnonWindElement:] = np.arange(self._l)
             Pvals[lastnonWindElement:] = 1.0
 
-            P = sparse.csr_matrix((Pvals,(Prows, Pcols)), shape=(n,self._l))
+            P = sparse.csr_matrix((Pvals, (Prows, Pcols)), shape=(n, self._l))
             P.eliminate_zeros()
+            P.sum_duplicates()
+            P.sort_indices()
             Pnnz = P.nnz
 
         # save values
@@ -205,6 +207,8 @@ class BHA(SymMatrixApprox):
         """Reconstruct the data from the approximation. Takes the square root
         of the approximation if we are approximating the squared matrix.
         """
+        approx = cupy.asnumpy(approx)
+    
         if self._interp_sq:
             return np.sqrt(np.clip(approx, 0, np.inf))
         else:
@@ -219,30 +223,27 @@ class BHA(SymMatrixApprox):
         return self.reconstruct(Kmanifold)
 
     def get_row(self, i, out=None):
-        if self._threshold is None:
-            approx = self._P[i,:].dot(self._W).dot(self._P.T)
+        if self._threshold is not None and not hasattr(self, '_cupyPW'):
+            self._cupyPW = cupy.empty((1, self._W.shape[0]), dtype=self._W.dtype)
+            self._cupyrow = cupy.empty((self._P.shape[0],), dtype=self._W.dtype)
+    
+        Pi = self._P.getrow(i)
+    
+        # (1, m) @ (m, m) -> (1, m)
+        PW = Pi.dot(self._W)
+    
+        # (n, m) @ (m, 1) -> (n, 1)
+        tmp = self._P.dot(PW.T).ravel()
+    
+        if out is not None:
+            out[...] = tmp
+            return out
+    
+        if self._threshold is not None:
+            self._cupyrow[...] = tmp
+            return self.reconstruct(self._cupyrow)
         else:
-            if not hasattr(self, '_cupyPW'):
-                # create GPU objects to hold intermediate states so we don't re-create them every time
-                self._cupyPW = cupy.zeros((1, self._W.shape[0]))
-                self._cupyrow = cupy.zeros((self._P.shape[0],))
-                self._P.sum_duplicates()
-
-            # extract the row of P, make sure it has the right format (!)
-            Pi = self._P[i]
-            #Pi.sum_duplicates()
-            Pi._has_canonical_format = True # since P is already in canonical format?
-
-            cupy.cusparse.csrmm2(Pi, self._W.T, self._cupyPW)
-            if out is not None:
-                cupy.cusparse.csrmv(self._P, self._cupyPW.T, out)
-                return out
-            else:
-                cupy.cusparse.csrmv(self._P, self._cupyPW.T, self._cupyrow)
-                #approx = self._P.dot(self._P[i,:].dot(self._W).T).T
-                approx = self._cupyrow.get()
-
-        return self.reconstruct(approx)
+            return self.reconstruct(tmp)
 
     def get_rows(self, rows):
         raise NotImplementedError('cupy version doesn\'t support get_rows, sorry')
